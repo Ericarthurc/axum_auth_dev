@@ -1,8 +1,9 @@
 use askama::Template;
 use axum::{
     body::{self, Full},
+    extract,
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, get_service, post, Route},
     Form, Router,
 };
 use http::StatusCode;
@@ -13,8 +14,11 @@ use jsonwebtoken::{
 use serde::{Deserialize, Serialize};
 use std::{io::Error, net::SocketAddr};
 use tower_cookies::{Cookie, CookieManagerLayer, Cookies};
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 const JWT_SECRET: &str = "fb23985y982fh75987jj23fbvngijeorcjgih";
+
 pub struct HtmlTemplate<T>(pub T);
 
 impl<T> IntoResponse for HtmlTemplate<T>
@@ -38,9 +42,27 @@ where
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route("/", get(index).post(index_form))
+        .route("/", get(index))
+        .route("/login", post(index_form))
         .route("/authenticated", get(auth))
-        .layer(CookieManagerLayer::new());
+        .layer(CookieManagerLayer::new())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .nest(
+            "/public",
+            get_service(ServeDir::new("./public/")).handle_error(
+                |error: std::io::Error| async move {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Unhandled internal error: {}", error),
+                    )
+                },
+            ),
+        );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     axum::Server::bind(&addr)
@@ -81,13 +103,14 @@ struct Input {
     password: String,
 }
 
-async fn index_form(Form(input): Form<Input>, cookies: Cookies) -> Response {
-    dbg!(&input);
+async fn index_form(extract::Json(payload): extract::Json<Input>, cookies: Cookies) -> Response {
+    println!("{:?}", payload);
 
-    if input.password != "password1234" {
-        Redirect::to("/").into_response()
+    // TEMP CODE, WILL GRAB AUTH FROM DATABASE
+    if payload.password != "password1234" {
+        return (StatusCode::FORBIDDEN).into_response();
     } else {
-        let token = generate_jwt(input.password).unwrap();
+        let token = generate_jwt(payload.password).unwrap();
 
         cookies.add(
             Cookie::build("id", token)
@@ -96,7 +119,7 @@ async fn index_form(Form(input): Form<Input>, cookies: Cookies) -> Response {
                 .finish(),
         );
 
-        Redirect::to("/authenticated").into_response()
+        return (StatusCode::ACCEPTED).into_response();
     }
 }
 
