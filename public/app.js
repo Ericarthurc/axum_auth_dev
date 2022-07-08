@@ -18,7 +18,7 @@ form.addEventListener('submit', async function (event) {
       return (window.location.href = '/authenticated');
     }
 
-    // handle is status is not ok
+    // handle if status is not ok
   } catch (error) {
     // handle error
   }
